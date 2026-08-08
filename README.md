@@ -1,6 +1,7 @@
 # zk-DEAP: A Zero-Knowledge Decentralized Encrypted Aggregation Protocol
 
-Artifact for the NDSS 2027 paper of the same title.
+Artifact for the NDSS 2027 paper of the same title. If the artifact is accepted, we will
+add a Zenodo DOI here.
 
 You can run the artifact using Docker, which needs nothing
 installed but Docker, or with a native build. Both approaches are described below. 
@@ -77,7 +78,11 @@ It will also save CSV versions of tables II--V, as well as a Figure 5 PNG, in th
 `results/` directory. 
 
 The absolute times measured by these benchmarks will differ based on hardware and from
-run to run, but proof sizes should be hardware independent. 
+run to run. Proof sizes do not depend on the hardware: the Bulletproof and zk-SNARK
+packages come to exactly 924 and 1,981 bytes every time. The zk-STARK samples randomly, so
+every proof it produces is a different size, and each variant is measured thirty times, so
+the tables report the mean of thirty zk-STARK proofs. That mean moves by a few hundred
+bytes from one run to the next. 
 
 Please read the "This artifact versus the anonymous repository linked in the paper"
 section at the end of this readme when comparing the produced tables and figures against the ones in the
@@ -118,7 +123,7 @@ before any measurement starts, and that cost grows with roughly the cube of the
 participant count, so running the benchmark with up to 500 participants may take several
 hours. 
 
-Proving is deliberately limited one core, as in the paper. Raw measurements are stored in
+Proving is deliberately limited to one core, as in the paper. Raw measurements are stored in
 `results/local.jsonl`, where some fields are null or zero by design (fixes 4 and 10).
 
 ## KZG parameters
@@ -210,19 +215,24 @@ Importantly, none of the differences described below affect the conclusions of t
 all measurements corrected by the bug fixes above will be incorporated into the 
 camera-ready version. 
 
-- **Times in Tables II, III and V are lower on comparable hardware.** Fix 2 removed
-  the wait for the fixture server, which did not depend on how much cryptographic work
-  followed it, and so dominated the quickest operations while being a smaller share of
-  the slowest. `PartialVerify` at five participants was logged at 3.38 ms, where the
-  cryptographic work alone measures under 0.2 ms. The published per-operation figures
-  were therefore upper bounds, making the paper's overhead claims conservative.
-- **zk-SNARK and zk-STARK proofs in Tables I to IV are larger.** `omega`, the extra
-  witness value the paper introduces for cross-field binding, was added to both
-  circuits after the Section V measurements were taken, and made their proofs bigger.
-  This code produces a 1,981-byte zk-SNARK package where Tables I to IV gave 1,248,
-  and between 18,600 and 19,000 bytes for zk-STARK against 16,855, the spread coming
-  from its randomized sampling. The Bulletproof variant binds a different way, was
-  unaffected, and still comes to exactly 924 bytes.
+- **Verification and round times in Tables II, III and V are lower on comparable
+  hardware.** Fix 2 removed the wait for the fixture server, which did not depend on how
+  much cryptographic work followed it, and so dominated the quickest operations while
+  being a smaller share of the slowest. `PartialVerify` at five participants was logged
+  at 3.38 ms, where the cryptographic work alone measures under 0.2 ms. The published
+  per-operation figures were therefore upper bounds, making the paper's overhead claims
+  conservative. The two proving times in the next bullet are the exception.
+- **zk-SNARK and zk-STARK proofs in Tables I to IV are larger, and slower to produce.**
+  `omega`, the extra witness value the paper introduces for cross-field binding, was
+  added to both circuits after the Section V measurements were taken, and made them
+  bigger. This code produces a 1,981-byte zk-SNARK package where Tables I to IV gave
+  1,248, and between 18,600 and 19,000 bytes for zk-STARK against 16,855, the spread
+  coming from its randomized sampling. Bigger circuits also take longer to prove, so
+  `ProofGen` for these two is the one place this artifact prints a higher number than the
+  paper. Table II gave 31.5 ms and 33.45 ms; this artifact prints more than that even on
+  a fast machine, and the zk-STARK figure varies widely from run to run. Verification is
+  barely affected, and the Bulletproof variant binds a different way, was unaffected, and
+  still comes to exactly 924 bytes.
 - **Table III's Baseline column is now measured.** It times a single round with no
   proofs generated or verified. The paper reported 103 ms for this.
 - **Table IV counted bytes two ways.** Component rows counted each component alone.
