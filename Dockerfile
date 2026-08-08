@@ -1,3 +1,4 @@
+# This was made with AI Assistance
 # Build and check the artifact in a fixed environment.
 #
 #   docker build -t zk-deap .

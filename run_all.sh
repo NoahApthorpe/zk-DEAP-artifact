@@ -1,4 +1,5 @@
 #!/bin/bash
+# This was made with AI Assistance
 # Run everything, in order, on one machine. Each part prints its own output:
 # the examples should report sum=3/5, the attack demonstrations 0 failed, and
 # the harness a 100% success rate.

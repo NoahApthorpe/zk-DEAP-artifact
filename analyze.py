@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# This was made with AI Assistance
 """Regenerate the tables and figures of Section V from JSONL benchmark output.
 
   ./analyze.py --logs results
