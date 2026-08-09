@@ -41,7 +41,7 @@ those two lines run the entire artifact. To get a shell in the same environment:
 
 ## Native build
 
-A native build requires Linux or macOS, x86-64 or arm64, and Rust 1.85 or newer.
+A native build requires Linux or macOS, x86-64 or arm64, and Rust 1.88 or newer.
 
 Debian or Ubuntu:
 
@@ -125,7 +125,10 @@ participant count, so running the benchmark with up to 500 participants may take
 hours. 
 
 Proving is deliberately limited to one core, as in the paper. Raw measurements are stored in
-`results/local.jsonl`, where some fields are null or zero by design (fixes 4 and 10).
+`results/local.jsonl`, regenerated from scratch on every run, where some fields are null or zero
+by design (fixes 4 and 10). `ProofGen` and `ProofVerify` are measured once, at five participants,
+because proof cost does not depend on the participant count; Tables III and V therefore carry a
+proof timing measured at n=5 under an n=100 heading, exactly as the paper composes them.
 
 ## KZG parameters
 
@@ -176,16 +179,23 @@ Azure VMs; **[added]** marks a measurement the harness did not previously take. 
    Nothing in the harness checked them, so no measurement was affected. The fixture server
    now supplies the Ed25519 seed of the key it actually generated, and the harness rebuilds
    the same key from it.
-4. **[bug]** Four recorded fields were not measurements. `cpu_time_user_us` and
+4. **[bug]** Eight recorded fields were not measurements. `cpu_time_user_us` and
    `cpu_time_system_us` were totals for the whole process rather than the cost of one
    operation, and are now a before-and-after difference. `cycles` was CPU time times
    a fixed 2.5 GHz, a compile-time constant selected by architecture rather than read from
-   the machine, and `energy_estimate_joules` came from it; both are now `null`, as
-   `instructions` and `cache_misses` always were. No table or figure in the paper uses
-   either field, but Section V's list of collected metrics names them, and the
-   camera-ready will drop them from that list. The corrected `cpu_time_*` fields are read
-   at the system clock-tick resolution of 10 ms and span the harness's fixture fetches as
-   well as the measured operation, so they too should not be read as per-operation figures.
+   the machine, and `energy_estimate_joules` came from it. `peak_rss_kb` read `VmHWM`, a
+   high-water mark for the whole process, so by the last test it reported the largest
+   allocation of any earlier one; `delta_rss_kb` subtracted the current RSS from it,
+   mixing the two; and `disk_read_kb` and `disk_write_kb` were cumulative
+   `/proc/self/io` byte counts, which rose monotonically as the harness appended to its
+   own output file. All six are now `null`, as `instructions` and `cache_misses` always
+   were. No table or figure in the paper uses any of them, but Section V's list of
+   collected metrics names CPU cycles, energy, peak memory and disk I/O, and the
+   camera-ready will drop them from that list. What remains is `initial_rss_kb`, an honest
+   point-in-time reading taken before the operation. The corrected `cpu_time_*` fields are
+   read at the system clock-tick resolution of 10 ms and span the harness's fixture fetches
+   as well as the measured operation, so they too should not be read as per-operation
+   figures.
 5. **[artifact]** Converting CPU ticks to microseconds assumed 100 ticks per second. That
    is the usual Linux default, and was correct on every machine the paper used, but it is
    not guaranteed, so it is now read from the system using the correct `_SC_CLK_TCK` value
@@ -264,7 +274,7 @@ camera-ready version.
   participant's round with no proof generated or verified: lifted-ElGamal encryption of its
   own input, its own partial decryption, verification of a threshold of peer partials, and
   combination with recovery of the sum. On the machine used to prepare this artifact it
-  runs in 1.4 ms at five participants and 30.2 ms at one hundred.
+  runs in about 1.4 ms at five participants and about 31 ms at one hundred.
 - **Table IV counted bytes two ways.** Component rows counted each component alone.
   Package rows counted the whole message as sent, which is 92 bytes larger for a proof
   and 40 for a partial decryption. Three of its rows therefore differ from the ones
@@ -284,6 +294,25 @@ camera-ready version.
   prints about 9.1 MB for the network total and 1.21 MB for the partial phase, against
   the published 11.9 MB and 1.93 MB. Nearly all of that difference comes from the
   smaller package sizes above rather than from the message counts.
+- **Table V reports only what is measured, so it has four rows where the paper's has
+  six.** The paper also gives peer verification and a round total at eight threads.
+  Nothing in the harness measures a multi-threaded run: those figures divide the
+  single-thread cost by eight, which assumes perfect linear speedup. This artifact prints
+  the measured single-thread figures alone. The paper's ~4% relative overhead against a
+  10 s federated-learning round comes from its single-thread total and is unaffected; the
+  camera-ready will either measure the parallel case or drop those two rows as this
+  artifact does.
+- **`PartialGen` is flat in Figure 5 where the paper's rises.** The paper plots it
+  growing from 2.19 ms at five participants to 5.22 ms at one hundred. Almost all of that
+  was fix 2's fixture fetch, which grows with the number of ciphertexts requested rather
+  than with any cryptographic work. Generating a partial decryption is near-constant in
+  the participant count: summing n curve points is negligible beside the one scalar
+  multiplication, Schnorr proof and Ed25519 signature that dominate it. On the machine
+  used to prepare this artifact it measures about 0.11 ms at five participants and about
+  0.12 ms at one hundred, so the curve is essentially horizontal. The conclusion drawn
+  from Figure 5 is unchanged — `DKG3` is
+  still by far the steepest curve, growing about 300-fold from five participants to one
+  hundred.
 
 Wall time and output size were, and remain, the only genuinely per-operation
 quantities, and every table and figure in the paper uses one of them.

@@ -83,8 +83,12 @@ pub struct FixtureCache {
 impl FixtureCache {
     pub fn new() -> Self { Self { dkg_ceremonies: HashMap::new(), zkp_artifacts: HashMap::new(), halo2_setup: None } } //Initialize empty cache
     pub fn initialize() -> Result<Self, AggError> { //Main initialization - pre-compute all fixtures
+        let sizes = network_sizes(); let ratios = threshold_ratios(); //AE-FIX (6)
+        let total_configs = sizes.len() * ratios.len();
         println!("=== Fixture Server Initialization ===");
-        println!("Pre-computing all fixtures (this takes ~30 minutes)...\n");
+        //AE-FIX (6)
+        println!("Pre-computing fixtures for {} (n, t) configuration(s): n = {:?}, t/n = {:?}.", total_configs, sizes, ratios);
+        println!("Cost grows with roughly the cube of the participant count.\n");
         let start_time = std::time::Instant::now();
         let mut cache = Self::new();
         //Step 1: Load Halo2 setup for SNARK tests
@@ -92,8 +96,6 @@ impl FixtureCache {
         cache.halo2_setup = Some(snark::setup_halo2()?);
         println!("✓ Halo2 setup loaded\n");
         //Step 2: Pre-compute DKG ceremonies and artifacts for all (n, t) combinations
-        let sizes = network_sizes(); let ratios = threshold_ratios(); //AE-FIX (6)
-        let total_configs = sizes.len() * ratios.len();
         let mut config_num = 0;
         for &n in &sizes {
             for &t_ratio in &ratios {

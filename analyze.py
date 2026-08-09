@@ -236,9 +236,15 @@ def table_iv(measurements, out_dir, n, t):
                for zkp in ZKPS if pkg_size_by_zkp[zkp]])
 
 
-def table_v(measurements, out_dir, n, threads=8):
-    """TABLE V: benchmark operations mapped onto phases of a federated-learning round."""
-    print(f"\nTABLE V  mapped to an FL round, n={n}, Bulletproof")
+def table_v(measurements, out_dir, n):
+    """TABLE V: benchmark operations mapped onto phases of a federated-learning round.
+
+    Single-threaded only. The paper's Table V also reports peer verification and a
+    round total at 8 threads, but nothing here measures a multi-threaded run -- those
+    figures divide the single-thread cost by 8, i.e. assume perfect linear speedup.
+    Every row below traces to a measurement instead.
+    """
+    print(f"\nTABLE V  mapped to an FL round, n={n}, Bulletproof, single-threaded")
     # compute
     gen_ms, _ = select_measurements(measurements, FUNC_PROOF_GEN, "Bulletproof")
     verify_ms, _ = select_measurements(measurements, FUNC_PROOF_VERIFY, "Bulletproof")
@@ -248,28 +254,22 @@ def table_v(measurements, out_dir, n, threads=8):
         print("  insufficient data")
         return
     submit_ms = st.mean(gen_ms)
-    peer_verify_1_thread_ms = (n - 1) * st.mean(verify_ms)
-    peer_verify_n_threads_ms = peer_verify_1_thread_ms / threads
+    peer_verify_ms = (n - 1) * st.mean(verify_ms)
     recovery_ms = st.mean(partial_gen_ms) + st.mean(agg_compute_ms)
+    total_ms = submit_ms + peer_verify_ms + recovery_ms
     rows = [
         ("Input submission", submit_ms),
-        (f"Peer verification x{n-1}, 1 thread", peer_verify_1_thread_ms),
-        (f"Peer verification x{n-1}, {threads} threads", peer_verify_n_threads_ms),
+        (f"Peer verification x{n-1}", peer_verify_ms),
         ("Result recovery", recovery_ms),
-        ("Total, 1 thread", submit_ms + peer_verify_1_thread_ms + recovery_ms),
-        (f"Total, {threads} threads", submit_ms + peer_verify_n_threads_ms + recovery_ms),
+        ("Total crypto/round", total_ms),
     ]
     # print
     print(f"{'phase':<38}{'ms':>10}")
     for label, ms in rows:
         print(f"{label:<38}{ms:>10.1f}")
     # Relative overhead against the 10-60 s FL round cited from ref [32].
-    total_1_thread_ms = submit_ms + peer_verify_1_thread_ms + recovery_ms
-    total_n_threads_ms = submit_ms + peer_verify_n_threads_ms + recovery_ms
-    print(f"\n  overhead of a 10 s FL round: {100*total_1_thread_ms/10000:.2f}% (1 thread)"
-          f"   {100*total_n_threads_ms/10000:.2f}% ({threads} threads)")
-    print(f"  overhead of a 60 s FL round: {100*total_1_thread_ms/60000:.2f}% (1 thread)"
-          f"   {100*total_n_threads_ms/60000:.2f}% ({threads} threads)")
+    print(f"\n  overhead of a 10 s FL round: {100*total_ms/10000:.2f}%")
+    print(f"  overhead of a 60 s FL round: {100*total_ms/60000:.2f}%")
     # write csv
     write_csv(out_dir / "table5.csv", ["phase", "ms"],
               [[label, round(ms, 1)] for label, ms in rows])

@@ -39,7 +39,7 @@ struct TestConfig { zkp_type: Option<ZKPType>, function: TestFunction, n: usize,
 struct ProofComponents { elgamal_bytes: usize, schnorr_bytes: usize, zkp_bytes: usize, signature_bytes: usize }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Metrics { timestamp: String, vm_profile: String, vm_arch: String, test_config: TestConfig, status: String, failure_reason: Option<String>, wall_time_us: u128, cpu_time_user_us: u128, cpu_time_system_us: u128, peak_rss_kb: u64, initial_rss_kb: u64, delta_rss_kb: i64, disk_read_kb: u64, disk_write_kb: u64, cycles: Option<u64>, instructions: Option<u64>, cache_misses: Option<u64>, energy_estimate_joules: Option<f64>, output_size_bytes: Option<usize>, proof_components: Option<ProofComponents> } //Performance metrics. AE-FIX (12)
+struct Metrics { timestamp: String, vm_profile: String, vm_arch: String, test_config: TestConfig, status: String, failure_reason: Option<String>, wall_time_us: u128, cpu_time_user_us: u128, cpu_time_system_us: u128, peak_rss_kb: Option<u64>, initial_rss_kb: u64, delta_rss_kb: Option<i64>, disk_read_kb: Option<u64>, disk_write_kb: Option<u64>, cycles: Option<u64>, instructions: Option<u64>, cache_misses: Option<u64>, energy_estimate_joules: Option<f64>, output_size_bytes: Option<usize>, proof_components: Option<ProofComponents> } //Performance metrics. AE-FIX (4), AE-FIX (12)
 
 struct FixtureClient { base_url: String, client: Client } //Fixture server client
 impl FixtureClient {
@@ -144,9 +144,9 @@ impl TestRunner {
         // AE-FIX (4)
         // AE-FIX (10)
         let initial_rss = Self::get_rss_kb().unwrap_or(0); let cpu_before = Self::get_cpu_times().unwrap_or((0, 0)); let result = self.run_function(config); let wall_time_us = match &result { Ok((us, _)) => *us, Err(_) => 0 };
-        let peak_rss = Self::get_peak_rss_kb().unwrap_or(0); let delta_rss = peak_rss as i64 - initial_rss as i64; let cpu_after = Self::get_cpu_times().unwrap_or((0, 0)); let (user_time_us, system_time_us) = (cpu_after.0.saturating_sub(cpu_before.0), cpu_after.1.saturating_sub(cpu_before.1)); let (disk_read_kb, disk_write_kb) = Self::get_io_stats().unwrap_or((0, 0)); //AE-FIX (10)
+        let cpu_after = Self::get_cpu_times().unwrap_or((0, 0)); let (user_time_us, system_time_us) = (cpu_after.0.saturating_sub(cpu_before.0), cpu_after.1.saturating_sub(cpu_before.1)); //AE-FIX (10)
         // AE-FIX (4)
-        let metrics = Metrics { timestamp: Self::timestamp_iso8601(), vm_profile: self.vm_profile.clone(), vm_arch: std::env::consts::ARCH.to_string(), test_config: config.clone(), status: if result.is_ok() { "SUCCESS".to_string() } else { "FAILED".to_string() }, failure_reason: result.as_ref().err().map(|e| e.to_string()), wall_time_us, cpu_time_user_us: user_time_us, cpu_time_system_us: system_time_us, peak_rss_kb: peak_rss, initial_rss_kb: initial_rss, delta_rss_kb: delta_rss, disk_read_kb, disk_write_kb, cycles: None, instructions: None, cache_misses: None, energy_estimate_joules: None, output_size_bytes: result.as_ref().ok().map(|(_, sz)| *sz), proof_components: self.last_components.take() };
+        let metrics = Metrics { timestamp: Self::timestamp_iso8601(), vm_profile: self.vm_profile.clone(), vm_arch: std::env::consts::ARCH.to_string(), test_config: config.clone(), status: if result.is_ok() { "SUCCESS".to_string() } else { "FAILED".to_string() }, failure_reason: result.as_ref().err().map(|e| e.to_string()), wall_time_us, cpu_time_user_us: user_time_us, cpu_time_system_us: system_time_us, peak_rss_kb: None, initial_rss_kb: initial_rss, delta_rss_kb: None, disk_read_kb: None, disk_write_kb: None, cycles: None, instructions: None, cache_misses: None, energy_estimate_joules: None, output_size_bytes: result.as_ref().ok().map(|(_, sz)| *sz), proof_components: self.last_components.take() };
         // AE-FIX (4)
         Ok(metrics)
     }
@@ -300,6 +300,8 @@ impl TestRunner {
         Ok((us, proof_bytes.len()))
     }
     fn get_rss_kb() -> Result<u64, Box<dyn std::error::Error>> { let pid = std::process::id(); let status = std::fs::read_to_string(format!("/proc/{}/status", pid))?; for line in status.lines() { if line.starts_with("VmRSS:") { let kb: u64 = line.split_whitespace().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0); return Ok(kb); } } Ok(0) } //Get current RSS memory
+    // AE-FIX (4)
+    #[allow(dead_code)]
     fn get_peak_rss_kb() -> Result<u64, Box<dyn std::error::Error>> { let pid = std::process::id(); let status = std::fs::read_to_string(format!("/proc/{}/status", pid))?; for line in status.lines() { if line.starts_with("VmHWM:") { let kb: u64 = line.split_whitespace().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0); return Ok(kb); } } Ok(0) } //Get peak RSS memory
     fn get_cpu_times() -> Result<(u128, u128), Box<dyn std::error::Error>> { //Read /proc/self/stat for CPU times
         let pid = std::process::id(); let stat = std::fs::read_to_string(format!("/proc/{}/stat", pid))?; let parts: Vec<&str> = stat.split_whitespace().collect(); //Parse the stat file (format: pid (comm) state ppid pgrp session tty_nr tpgid flags minflt cminflt majflt cmajflt utime stime cutime cstime ...)
@@ -313,6 +315,8 @@ impl TestRunner {
         let utime_us = (utime_ticks * 1_000_000) / clock_ticks_per_sec; let stime_us = (stime_ticks * 1_000_000) / clock_ticks_per_sec; //Convert from clock ticks to microseconds
         Ok((utime_us as u128, stime_us as u128))
     }
+    // AE-FIX (4)
+    #[allow(dead_code)]
     fn get_io_stats() -> Result<(u64, u64), Box<dyn std::error::Error>> { //Read /proc/self/io (may fail on some systems)
         let pid = std::process::id();
         match std::fs::read_to_string(format!("/proc/{}/io", pid)) { Ok(io_str) => { let mut read_bytes = 0u64; let mut write_bytes = 0u64; for line in io_str.lines() { if line.starts_with("read_bytes:") { read_bytes = line.split_whitespace().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0); } else if line.starts_with("write_bytes:") { write_bytes = line.split_whitespace().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0); } } Ok((read_bytes / 1024, write_bytes / 1024)) } Err(_) => Ok((0, 0)) } //If /proc/self/io is not available, return zeros
