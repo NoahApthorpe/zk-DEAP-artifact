@@ -21,9 +21,7 @@ use zk_deap::stark;
 const NETWORK_SIZES: &[usize] = &[5, 10, 20, 50, 100, 250, 500]; //Test network sizes
 const THRESHOLD_RATIOS: &[f64] = &[0.25, 0.5, 0.67, 0.75]; //Threshold ratios
 
-// AE-FIX (6): must match the harness sweep, so both read the same overrides.
-// Pre-computing all 28 default configurations takes hours (the n=500 DKG
-// ceremony alone is ~O(n^3)); a reviewer needs a way to run a small subset.
+// AE-FIX (6)
 fn network_sizes() -> Vec<usize> {
     match std::env::var("ZKDEAP_SIZES") { Ok(v) if !v.trim().is_empty() => v.split(',').filter_map(|x| x.trim().parse().ok()).collect(), _ => NETWORK_SIZES.to_vec() }
 }
@@ -51,7 +49,7 @@ impl std::str::FromStr for ZKPType {
 
 //DKG CEREMONY STRUCTURES
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeviceOutput { pub device_id: u32, pub key_package: Vec<u8>, pub public_package: Vec<u8>, pub signing_pubkey: [u8; 32], pub signing_seed: [u8; 32] } //Output from a completed DKG ceremony for one device. AE-FIX (3): signing_seed added so the harness can reconstruct the actual signing key instead of misusing signing_pubkey as a seed
+pub struct DeviceOutput { pub device_id: u32, pub key_package: Vec<u8>, pub public_package: Vec<u8>, pub signing_pubkey: [u8; 32], pub signing_seed: [u8; 32] } //Output from a completed DKG ceremony for one device. AE-FIX (3)
 
 #[derive(Debug, Clone)]
 pub struct DKGCeremony {
@@ -189,7 +187,7 @@ impl FixtureCache {
                 key_package: key_package.serialize().map_err(|e| AggError::CryptoError(format!("Serialize failed: {:?}", e)))?.to_vec(),
                 public_package: public_key_package.serialize().map_err(|e| AggError::CryptoError(format!("Serialize failed: {:?}", e)))?.to_vec(),
                 signing_pubkey: signing_key.verifying_key().to_bytes(),
-                signing_seed: sig_seed //AE-FIX (3): the seed this device's signing key was derived from
+                signing_seed: signing_key.to_bytes() //AE-FIX (3)
             });
             let mut r1_for_device = Vec::new();
             for (frost_id, pkg) in &r1_packages {

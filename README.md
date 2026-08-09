@@ -86,8 +86,9 @@ bytes from one run to the next.
 
 Please read the "This artifact versus the anonymous repository linked in the paper"
 section at the end of this readme when comparing the produced tables and figures against the ones in the
-paper. A few minor bugs found while preparing this artifact have been fixed, which
-changes some measured values without affecting the conclusions of the paper.
+paper. Preparing this artifact fixed a small number of bugs and made several changes so
+that it runs outside the original Azure environment. Some measured values change as a
+result; none of the paper's conclusions do.
 
 The following sections describe each of E1--E3 in more detail.
 
@@ -145,7 +146,7 @@ hash above confirms you have the same bytes the measurements used.
 
 This artifact replicates the code used for the accepted version of the paper, as published
 in the anonymous repository linked in the paper's introduction, with a small number of
-bugs fixed.
+bugs fixed and a few changes made so that it runs outside the original Azure environment.
 Specifically, three files changed:
 
     src/bin/azureTestingScripts/test_harness.rs
@@ -154,43 +155,62 @@ Specifically, three files changed:
 
 The other fourteen source files in `src/` are identical to those in the anonymous repository.
 Importantly, the zk-DEAP protocol implementation itself is unchanged.
-Each bug fix is marked in the source with an `AE-FIX (n)` 
-comment matching this list:
+Each change is marked in the source with an `AE-FIX (n)` comment matching this list.
+Items tagged **[bug]** are defects in the code as published; **[artifact]** marks changes
+made so this package builds and runs on a reviewer's machine rather than on the original
+Azure VMs; **[added]** marks a measurement the harness did not previously take. Only the
+**[bug]** items affect any number in the paper.
 
-1. Before running any zk-SNARK test the harness checked for `kzg_bn254_5.params`, but
-   the file it loaded, and the only one distributed, was `kzg_bn254_8.params`. Every
-   zk-SNARK measurement was therefore recorded `FAILED`. The check now names the file
-   that is actually loaded.
-2. The timer started before the harness fetched its inputs from the fixture server,
-   so time spent waiting on the network was counted as cryptographic work. Each
+1. **[bug]** Before running any zk-SNARK test the harness checked for
+   `kzg_bn254_5.params` — the file `src/bin/azureTestingScripts/snark_setup.rs` writes —
+   while the file it actually loaded was `kzg_bn254_8.params`. Both were present on the
+   machines that produced the paper's measurements, so the check passed there. This
+   artifact distributes only `kzg_bn254_8.params`, under which the check fails and every
+   zk-SNARK measurement records `FAILED`. The harness now simply attempts the load and
+   reports the library's own error, so the two filenames cannot drift apart again.
+2. **[bug]** The timer started before the harness fetched its inputs from the fixture
+   server, so time spent waiting on the network was counted as cryptographic work. Each
    operation now times only the call marked `//MEASURED OPERATION`.
-3. Each participant's signing key was built from its public key by mistake, so the
-   signatures the harness produced could never verify. The fixture server now
-   supplies the secret that the signing key is derived from.
-4. Four recorded fields were not measurements. `cpu_time_user_us` and
+3. **[bug]** Each participant's signing key was built from its own public key by mistake,
+   so the signatures the harness produced could never verify against the peer key map.
+   Nothing in the harness checked them, so no measurement was affected. The fixture server
+   now supplies the Ed25519 seed of the key it actually generated, and the harness rebuilds
+   the same key from it.
+4. **[bug]** Four recorded fields were not measurements. `cpu_time_user_us` and
    `cpu_time_system_us` were totals for the whole process rather than the cost of one
    operation, and are now a before-and-after difference. `cycles` was CPU time times
-   a fixed 2.5 GHz no machine ran at, and `energy_estimate_joules` came from it; both
-   are now `null`, as `instructions` and `cache_misses` always were.
-5. Converting CPU ticks to microseconds assumed 100 ticks per second. That is the
-   usual Linux default but not guaranteed, so it is now read from the system.
-6. The benchmark always ran all 28 combinations of participant count and threshold
-   before reporting anything. `ZKDEAP_SIZES` and `ZKDEAP_RATIOS` now select a subset.
-7. The paper's Acknowledgments say every file containing AI-generated code opens with
-   a disclaimer. `fixture_server.rs` had one; `test_harness.rs` did not. Added.
-8. The command description and startup banner displayed `ZK-DISPHASIA`, a former name
-   for this work. Now `zk-DEAP`.
-9. A dependency on `halo2_gadgets` stopped a clean checkout building at all: both
+   a fixed 2.5 GHz, a compile-time constant selected by architecture rather than read from
+   the machine, and `energy_estimate_joules` came from it; both are now `null`, as
+   `instructions` and `cache_misses` always were. No table or figure in the paper uses
+   either field, but Section V's list of collected metrics names them, and the
+   camera-ready will drop them from that list. The corrected `cpu_time_*` fields are read
+   at the system clock-tick resolution of 10 ms and span the harness's fixture fetches as
+   well as the measured operation, so they too should not be read as per-operation figures.
+5. **[artifact]** Converting CPU ticks to microseconds assumed 100 ticks per second. That
+   is the usual Linux default, and was correct on every machine the paper used, but it is
+   not guaranteed, so it is now read from the system using the correct `_SC_CLK_TCK` value
+   for the platform.
+6. **[artifact]** The benchmark always ran all 28 combinations of participant count and
+   threshold before reporting anything. `ZKDEAP_SIZES` and `ZKDEAP_RATIOS` now select a
+   subset; unset, they reproduce the original sweep exactly.
+7. **[bug]** The paper's Acknowledgments name three files as containing AI-generated code
+   and say all such files open with a disclaimer. `fixture_server.rs` and
+   `azureVMLogs/vmLogAnalysis.py` had one; `test_harness.rs` did not. Added.
+8. **[artifact]** The command description and startup banner displayed `ZK-DISPHASIA`, a
+   former name for this work. Now `zk-DEAP`.
+9. **[bug]** A dependency on `halo2_gadgets` stopped a clean checkout building at all: both
    released versions were withdrawn from crates.io. No source file used it, so it is
    commented out, and `Cargo.lock` is now included.
-10. A memory or CPU counter that could not be read aborted the measurement itself, so
-    without `/proc` (on macOS) every test failed. Those fields now report zero.
-12. Table III compares zk-DEAP against a baseline that runs the protocol without
-    proofs, but nothing in the harness measured such a round. A `BaselineRound`
+10. **[artifact]** A memory or CPU counter that could not be read aborted the measurement
+    itself. The original ran on Linux Azure VMs, where these always succeeded; on a host
+    without `/proc` (macOS) every test failed instead, writing no result at all. Those
+    fields now report zero.
+11. **[added]** Table III compares zk-DEAP against a baseline that runs the protocol
+    without proofs, but nothing in the harness measured such a round. A `BaselineRound`
     operation now does: encryption, threshold decryption, and recovery of the sum,
     with no proof generated or verified.
-13. Only the total size of a proof message was recorded, so the four component sizes
-    in Table IV had nothing measured behind them. Each is now measured from the proof
+12. **[bug]** Only the total size of a proof message was recorded, so the four component
+    sizes in Table IV had nothing measured behind them. Each is now measured from the proof
     itself, and the timer stops before the message is packed for sending.
 
 `run_all.sh`, `Dockerfile`, and `Cargo.lock` were written for this artifact and
@@ -226,15 +246,25 @@ camera-ready version.
   `omega`, the extra witness value the paper introduces for cross-field binding, was
   added to both circuits after the Section V measurements were taken, and made them
   bigger. This code produces a 1,981-byte zk-SNARK package where Tables I to IV gave
-  1,248, and between 18,600 and 19,000 bytes for zk-STARK against 16,855, the spread
-  coming from its randomized sampling. Bigger circuits also take longer to prove, so
+  1,248, and zk-STARK packages averaging a little over 18,600 bytes against 16,855, with
+  individual proofs ranging from roughly 16,700 to 20,000 bytes, the spread
+  coming from its randomized sampling. The archived logs from the paper's own runs record
+  a 1,500-byte zk-SNARK package, not the 1,248 bytes printed in Tables I, II and IV; we
+  have not been able to reconcile the two, and the camera-ready will use the measured
+  value. The Bulletproof (924 B) and zk-STARK (16,855 B) figures in those tables do
+  reproduce exactly from the same logs. Bigger circuits also take longer to prove, so
   `ProofGen` for these two is the one place this artifact prints a higher number than the
   paper. Table II gave 31.5 ms and 33.45 ms; this artifact prints more than that even on
   a fast machine, and the zk-STARK figure varies widely from run to run. Verification is
   barely affected, and the Bulletproof variant binds a different way, was unaffected, and
   still comes to exactly 924 bytes.
-- **Table III's Baseline column is now measured.** It times a single round with no
-  proofs generated or verified. The paper reported 103 ms for this.
+- **Table III's Baseline column is now measured.** Nothing in the original harness
+  measured an unverified round, so the paper's 103 ms for this cell has no counterpart in
+  the archived logs; the camera-ready will use a measured value. `BaselineRound` times one
+  participant's round with no proof generated or verified: lifted-ElGamal encryption of its
+  own input, its own partial decryption, verification of a threshold of peer partials, and
+  combination with recovery of the sum. On the machine used to prepare this artifact it
+  runs in 1.4 ms at five participants and 30.2 ms at one hundred.
 - **Table IV counted bytes two ways.** Component rows counted each component alone.
   Package rows counted the whole message as sent, which is 92 bytes larger for a proof
   and 40 for a partial decryption. Three of its rows therefore differ from the ones

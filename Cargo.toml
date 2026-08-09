@@ -63,13 +63,7 @@ serde = { version = "1.0", features = ["derive"] } #Serialization/deserializatio
 serde_with = "3.14" #Serialization/deserialization
 halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v2023_04_20" } #Halo2
 blake2b_simd = "1.0" #Transcript
-#halo2_gadgets = "0.3"
-# AE-FIX (9): halo2_gadgets 0.3.0 and 0.3.1 were both YANKED from crates.io, so
-# `cargo build` fails outright on a clean checkout with:
-#   error: failed to select a version for the requirement `halo2_gadgets = "^0.3"`
-# Combined with Cargo.lock being listed in .gitignore, this made the artifact
-# unbuildable. The crate is referenced by zero source files, so it is commented
-# out rather than pinned. Cargo.lock is now committed alongside this manifest.
+#halo2_gadgets = "0.3" # AE-FIX (9)
 winterfell = { version = "0.10", features = ["concurrent"] } #Winterfell
 winter-utils = "0.10" #Winterfell
 winter-prover = "0.10" #Winterfell
