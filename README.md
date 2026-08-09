@@ -84,11 +84,11 @@ every proof it produces is a different size, and each variant is measured thirty
 the tables report the mean of thirty zk-STARK proofs. That mean moves by a few hundred
 bytes from one run to the next. 
 
-Please read the "This artifact versus the anonymous repository linked in the paper"
+Please read the "Artifact outputs versus tables/figures in paper"
 section at the end of this readme when comparing the produced tables and figures against the ones in the
 paper. Preparing this artifact fixed a small number of bugs and made several changes so
 that it runs outside the original Azure environment. Some measured values change as a
-result; none of the paper's conclusions do.
+result, but none of the paper's conclusions do.
 
 The following sections describe each of E1--E3 in more detail.
 
