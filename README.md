@@ -154,8 +154,8 @@ hash above confirms you have the same bytes the measurements used.
 ## This artifact versus the anonymous repository linked in the paper
 
 This artifact replicates the code used for the accepted version of the paper, as published
-in the anonymous repository linked in the paper's introduction, with a few bugs fixed and
-a few changes made so that it runs outside the original Azure environment. Four files
+in the anonymous repository linked in the paper's introduction, with bugs fixed and
+changes made so that it runs outside the original Azure environment. Four files
 changed:
 
     src/bin/azureTestingScripts/test_harness.rs
@@ -170,7 +170,7 @@ Items tagged **[bug]** are defects in the code as published. **[artifact]** mark
 made so this package builds and runs on a reviewer's machine rather than on the original
 Azure VMs, and **[added]** marks a measurement the harness did not previously take.
 
-1. **[bug]** The harness's zk-SNARK check tested for `kzg_bn254_5.params`, but the code 
+1. **[bug]** The harness's zk-SNARK check tested for `kzg_bn254_5.params`, but the code
    actually loads `kzg_bn254_8.params`. The check is now removed, and
    only `kzg_bn254_8.params` is needed and included.
 2. **[bug]** The timer started before the harness fetched its inputs from the fixture
@@ -188,15 +188,15 @@ Azure VMs, and **[added]** marks a measurement the harness did not previously ta
    usual Linux default and correct on every machine the paper used, but not guaranteed. It
    is now read from the system.
 6. **[artifact]** The benchmark always ran all 28 combinations of participant count and
-   threshold before reporting anything. `ZKDEAP_SIZES` and `ZKDEAP_RATIOS` now select a
+   threshold. `ZKDEAP_SIZES` and `ZKDEAP_RATIOS` now select a
    subset. Unset, they reproduce the original sweep exactly.
 7. **[bug]** The paper's Acknowledgments name three files as containing AI-generated code
    and say all such files open with a disclaimer. `fixture_server.rs` and
    `azureVMLogs/vmLogAnalysis.py` had one. `test_harness.rs` did not. Added.
 8. **[artifact]** The command description and startup banner displayed `ZK-DISPHASIA`, a
    former name for this work. Now `zk-DEAP`.
-9. **[bug]** A dependency on `halo2_gadgets` stopped a clean checkout building at all: both
-   released versions were withdrawn from crates.io. No source file used it, so it is
+9. **[bug]** A dependency on `halo2_gadgets` stopped a clean checkout building at all: the
+   versions it required were withdrawn from crates.io. No source file used it, so it is
    commented out, and `Cargo.lock` is now included.
 10. **[artifact]** A memory or CPU counter that could not be read aborted the measurement
     itself. On the Linux Azure VMs the original targeted these always succeeded, but on a
@@ -208,9 +208,10 @@ Azure VMs, and **[added]** marks a measurement the harness did not previously ta
 12. **[bug]** The original harness recorded only the total size of a proof message, not its
     individual components. This artifact measures each of Table IV's four components from the
     proof itself, and the timer stops before the message is packed for sending.
-13. **[artifact]** `snark_setup.rs` now targets `k=8` / `kzg_bn254_8.params`,
-    matching what `setup_halo2()` loads and what is included in this artifact. 
+13. **[bug]** `snark_setup.rs` now targets `k=8` / `kzg_bn254_8.params`,
+    matching what `setup_halo2()` loads and what is included in this artifact.
     Not run by `run_all.sh`, so no measurement is affected.
+14. **[bug]** `panic = "abort"` removed so the attack suites' `catch_unwind` reports failures.
 
 `run_all.sh`, `Dockerfile` and `Cargo.lock` were written for this artifact and have no
 counterpart in the anonymous repository, and `analyze.py` replaces
@@ -237,19 +238,20 @@ conclusions, and the camera-ready will use the corrected measurements.
   The zk-SNARK numbers also count different things. The paper's package total is 1,676 bytes
   (Table IV), and its 1,248-byte figure (Table II) is the proof alone. This artifact's package is
   1,981 bytes. The zk-STARK averages a little over 18,600 bytes and varies by a few hundred bytes
-  per run because its sampling is randomized. The Bulletproof size (924 bytes) is unchanged.
+  per run because its sampling is randomized. The Bulletproof variant is unaffected.
 - **Table III's Baseline column is now measured.** The original harness never measured an
   unverified round. This artifact adds a direct measurement for the paper's 103 ms cell, and the
   camera-ready will use it.
-- **Some of Table IV's byte counts differ.** This artifact measures each proof component directly
-  and counts the full message as sent, so the Schnorr, ZKP, and package-total rows differ from the
-  paper's. The network and partial-phase totals come out smaller because the packages are smaller.
-  The camera-ready will use the measured values.
+- **Most of Table IV's byte counts differ.** This artifact measures each proof component
+  directly and counts the full packaged message, so the Schnorr, ZKP, package, and
+  partial-decryption rows differ from the paper's, along with the totals derived from them;
+  only the fixed-size ElGamal ciphertext and Ed25519 signature rows match. None of this
+  changes the paper's conclusions, and the camera-ready will use the measured values.
 - **Table V lists four rows where the paper's has seven crypto rows.** The harness measures only
   single-threaded runs, so this artifact drops the paper's two eight-thread rows. It also merges
   the `Secure aggregation` row into `Result recovery`, because the measured `compute_aggregate`
-  step covers both. The paper's ~4% per-round overhead uses the single-thread total and is
-  unchanged.
+  step covers both. The paper's ~4% per-round overhead comes from the single-thread total, not
+  the dropped eight-thread rows, so dropping them does not affect it.
 - **`PartialGen` is flat in Figure 5 where the paper's rises.** In the paper's Figure 5 this curve
   climbs with the participant count, but that growth was mostly the fixture fetch that Fix 2
   removed. Generating a partial decryption is fixed-size work, so here it stays flat at about

@@ -88,6 +88,7 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = true
+# AE-FIX (14): panic = "abort" removed so the attack suites' catch_unwind reports failures
 overflow-checks = false
 debug = false
 incremental = false
