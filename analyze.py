@@ -134,11 +134,10 @@ def table_ii(measurements, out_dir):
         cells = [f"{gen_mean:.2f}±{gen_stdev:.2f}", f"{ver_mean:.2f}±{ver_stdev:.2f}",
                  str(size_bytes) if size_bytes is not None else "-"]
         print(f"{zkp:<12}" + "".join(f"{c:>{COLUMN_WIDTH}}" for c in cells))
-        rows.append([zkp, round(gen_mean, 2), round(gen_stdev, 2),
-                     round(ver_mean, 2), round(ver_stdev, 2), size_bytes])
-    # write csv
+        rows.append([zkp, *cells])
+    # write csv in the paper's layout (matches the printed cells and Table II)
     write_csv(out_dir / "table2.csv",
-              ["variant", "gen_ms", "gen_sd", "ver_ms", "ver_sd", "size_b"], rows)
+              ["variant", "ProofGen (ms)", "ProofVerify (ms)", "size (B)"], rows)
 
 
 def table_iii(measurements, out_dir, n, t):
@@ -176,21 +175,20 @@ def table_iii(measurements, out_dir, n, t):
             print(f"{label:<24}{baseline_cell:>10}" + "".join(f"{c:>{COLUMN_WIDTH}}" for c in cells))
 
     # print
-    print_block(f"TABLE III  overhead of verifiability, n={n}",
-                ["0.00", "0.00", "0.00", "0", format_ms(baseline_mean), "no", "no"],
-                [[format_ms(prove_ms_by_zkp[zkp]) for zkp in ZKPS],
-                 [format_ms(verify_ms_by_zkp[zkp]) for zkp in ZKPS],
-                 [format_ms((prove_ms_by_zkp[zkp] or 0) + (verify_ms_by_zkp[zkp] or 0)) for zkp in ZKPS],
-                 [str(size_by_zkp[zkp]) if size_by_zkp[zkp] else "-" for zkp in ZKPS],
-                 round_time_cells,
-                 ["yes"] * 3,
-                 ["yes"] * 3])
+    baseline_row = ["0.00", "0.00", "0.00", "0", format_ms(baseline_mean), "no", "no"]
+    zkp_columns = [[format_ms(prove_ms_by_zkp[zkp]) for zkp in ZKPS],
+                   [format_ms(verify_ms_by_zkp[zkp]) for zkp in ZKPS],
+                   [format_ms((prove_ms_by_zkp[zkp] or 0) + (verify_ms_by_zkp[zkp] or 0)) for zkp in ZKPS],
+                   [str(size_by_zkp[zkp]) if size_by_zkp[zkp] else "-" for zkp in ZKPS],
+                   round_time_cells,
+                   ["yes"] * 3,
+                   ["yes"] * 3]
+    print_block(f"TABLE III  overhead of verifiability, n={n}", baseline_row, zkp_columns)
 
-    # write csv
-    write_csv(out_dir / "table3.csv", ["variant", "prove_ms", "verify_ms", "per_peer_ms", "size_b"],
-              [[zkp, round(prove_ms_by_zkp[zkp] or 0, 2), round(verify_ms_by_zkp[zkp] or 0, 2),
-                round((prove_ms_by_zkp[zkp] or 0) + (verify_ms_by_zkp[zkp] or 0), 2), size_by_zkp[zkp]]
-               for zkp in ZKPS])
+    # write csv in the paper's row/column layout so it lays beside Table III
+    write_csv(out_dir / "table3.csv", ["metric", "Baseline", *ZKPS],
+              [[label, baseline_cell, *cells]
+               for label, baseline_cell, cells in zip(ROWS_III, baseline_row, zkp_columns)])
 
 
 def table_iv(measurements, out_dir, n, t):
@@ -219,21 +217,20 @@ def table_iv(measurements, out_dir, n, t):
     # messages, not the n(n-1) of the proof-broadcast phase.
     partial_phase_mb = partial_pkg_size * t * (n - 1) / 1e6 if partial_pkg_size else None
     # print
-    print_block(f"TABLE IV  communication, n={n}, t={t}",
-                [[f"{components_by_zkp[zkp][0]} B" if components_by_zkp[zkp] else "-" for zkp in ZKPS],
-                 [f"{components_by_zkp[zkp][1]} B" if components_by_zkp[zkp] else "-" for zkp in ZKPS],
-                 [f"{components_by_zkp[zkp][2]} B" if components_by_zkp[zkp] else "-" for zkp in ZKPS],
-                 [f"{components_by_zkp[zkp][3]} B" if components_by_zkp[zkp] else "-" for zkp in ZKPS],
-                 [f"{pkg_size_by_zkp[zkp]} B" if pkg_size_by_zkp[zkp] else "-" for zkp in ZKPS],
-                 [f"{sent_kb_by_zkp[zkp]:.1f} KB" if sent_kb_by_zkp[zkp] else "-" for zkp in ZKPS],
-                 [f"{network_mb_by_zkp[zkp]:.1f} MB" if network_mb_by_zkp[zkp] else "-" for zkp in ZKPS],
-                 [f"{partial_pkg_size} B" if partial_pkg_size else "-"] * 3,
-                 [f"{partial_phase_mb:.2f} MB" if partial_phase_mb else "-"] * 3])
+    zkp_columns = [[f"{components_by_zkp[zkp][0]} B" if components_by_zkp[zkp] else "-" for zkp in ZKPS],
+                   [f"{components_by_zkp[zkp][1]} B" if components_by_zkp[zkp] else "-" for zkp in ZKPS],
+                   [f"{components_by_zkp[zkp][2]} B" if components_by_zkp[zkp] else "-" for zkp in ZKPS],
+                   [f"{components_by_zkp[zkp][3]} B" if components_by_zkp[zkp] else "-" for zkp in ZKPS],
+                   [f"{pkg_size_by_zkp[zkp]} B" if pkg_size_by_zkp[zkp] else "-" for zkp in ZKPS],
+                   [f"{sent_kb_by_zkp[zkp]:.1f} KB" if sent_kb_by_zkp[zkp] else "-" for zkp in ZKPS],
+                   [f"{network_mb_by_zkp[zkp]:.1f} MB" if network_mb_by_zkp[zkp] else "-" for zkp in ZKPS],
+                   [f"{partial_pkg_size} B" if partial_pkg_size else "-"] * 3,
+                   [f"{partial_phase_mb:.2f} MB" if partial_phase_mb else "-"] * 3]
+    print_block(f"TABLE IV  communication, n={n}, t={t}", zkp_columns)
 
-    # write csv
-    write_csv(out_dir / "table4.csv", ["variant", "pkg_b", "sent_kb", "net_mb"],
-              [[zkp, pkg_size_by_zkp[zkp], round(sent_kb_by_zkp[zkp], 1), round(network_mb_by_zkp[zkp], 1)]
-               for zkp in ZKPS if pkg_size_by_zkp[zkp]])
+    # write csv in the paper's row/column layout so it lays beside Table IV
+    write_csv(out_dir / "table4.csv", ["component", *ZKPS],
+              [[label, *cells] for label, cells in zip(ROWS_IV, zkp_columns)])
 
 
 def table_v(measurements, out_dir, n):

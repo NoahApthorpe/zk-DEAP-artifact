@@ -343,7 +343,7 @@ fn env_list_f64(key: &str, default: &[f64]) -> Vec<f64> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    println!("=== zk-DEAP Test Harness ===\nVM Profile: {}\nDevice ID: {}\nFixture Server: {}\nOutput: {}\n", args.vm_profile, args.device_id, args.fixture_server, args.output);
+    println!("=== zk-DEAP Test Harness ===\nVM Profile: {}\nDevice ID: {}\nFixture Server: {}\nOutput: {}\n", args.vm_profile, args.device_id, args.fixture_server, args.output); //AE-FIX (8)
     let mut runner = TestRunner::new(&args)?;
     runner.run_all_tests();
     println!("\n=== Test harness completed ===");
