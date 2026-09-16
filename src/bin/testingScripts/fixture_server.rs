@@ -21,7 +21,6 @@ use zk_deap::stark;
 const NETWORK_SIZES: &[usize] = &[5, 10, 20, 50, 100, 250, 500]; //Test network sizes
 const THRESHOLD_RATIOS: &[f64] = &[0.25, 0.5, 0.67, 0.75]; //Threshold ratios
 
-// AE-FIX (6)
 fn network_sizes() -> Vec<usize> {
     match std::env::var("ZKDEAP_SIZES") { Ok(v) if !v.trim().is_empty() => v.split(',').filter_map(|x| x.trim().parse().ok()).collect(), _ => NETWORK_SIZES.to_vec() }
 }
@@ -49,7 +48,7 @@ impl std::str::FromStr for ZKPType {
 
 //DKG CEREMONY STRUCTURES
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeviceOutput { pub device_id: u32, pub key_package: Vec<u8>, pub public_package: Vec<u8>, pub signing_pubkey: [u8; 32], pub signing_seed: [u8; 32] } //Output from a completed DKG ceremony for one device. AE-FIX (3)
+pub struct DeviceOutput { pub device_id: u32, pub key_package: Vec<u8>, pub public_package: Vec<u8>, pub signing_pubkey: [u8; 32], pub signing_seed: [u8; 32] } //Output from a completed DKG ceremony for one device.
 
 #[derive(Debug, Clone)]
 pub struct DKGCeremony {
@@ -83,10 +82,9 @@ pub struct FixtureCache {
 impl FixtureCache {
     pub fn new() -> Self { Self { dkg_ceremonies: HashMap::new(), zkp_artifacts: HashMap::new(), halo2_setup: None } } //Initialize empty cache
     pub fn initialize() -> Result<Self, AggError> { //Main initialization - pre-compute all fixtures
-        let sizes = network_sizes(); let ratios = threshold_ratios(); //AE-FIX (6)
+        let sizes = network_sizes(); let ratios = threshold_ratios();
         let total_configs = sizes.len() * ratios.len();
         println!("=== Fixture Server Initialization ===");
-        //AE-FIX (6)
         println!("Pre-computing fixtures for {} (n, t) configuration(s): n = {:?}, t/n = {:?}.", total_configs, sizes, ratios);
         println!("Cost grows with roughly the cube of the participant count.\n");
         let start_time = std::time::Instant::now();
@@ -189,7 +187,7 @@ impl FixtureCache {
                 key_package: key_package.serialize().map_err(|e| AggError::CryptoError(format!("Serialize failed: {:?}", e)))?.to_vec(),
                 public_package: public_key_package.serialize().map_err(|e| AggError::CryptoError(format!("Serialize failed: {:?}", e)))?.to_vec(),
                 signing_pubkey: signing_key.verifying_key().to_bytes(),
-                signing_seed: signing_key.to_bytes() //AE-FIX (3)
+                signing_seed: signing_key.to_bytes()
             });
             let mut r1_for_device = Vec::new();
             for (frost_id, pkg) in &r1_packages {
