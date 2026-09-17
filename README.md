@@ -144,6 +144,23 @@ repository, byte-identical to the copy here, and cannot be re-fetched independen
 the download URL printed by `src/bin/utils/param_gen.rs` now returns HTTP 403. The
 hash above confirms you have the same bytes the measurements used.
 
+## Adoption Information 
+
+When adopting zk-DEAP to a specific use case, the first decision is selecting which
+ZKP variant to use (Bulletproofs, zk-SNARK, or zk-STARK). This will define which
+module of the library to use. Then, depending on what is being aggregated and what
+constraints need to be enforced on the commitments, the ZKP code needs to be modified
+to encapsulate those constraints. This can be as rigorous as the situation requires. 
+
+The final step is to compile the binaries to be distributed to the participants.
+If using zk-SNARK, the binaries must be accompanied by the Powers of Tau
+parameters. Deployers should verify both the parameter blob's published transcript
+hash and the binary's reproducible-build hash against an authenticated source before
+distribution. Depending on which parts of the protocol the application plans on using,
+the `Cargo.toml` configuration file can be modified to include or exclude the
+necessary libraries, and the `rustc` compiler can create or cross-compile binaries
+for whichever architecture the participants will use.
+
 ## License
 
 MIT, see `LICENSE`.
