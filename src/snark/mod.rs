@@ -7,7 +7,6 @@ use frost_ristretto255 as frost; //Frost
 use ed25519_dalek::{SigningKey, VerifyingKey as ed_vf, Signature, Signer}; //ECDS
 use zeroize::Zeroize; //Safe deletion
 use rand::rngs::OsRng; //Random
-use rand::RngCore; //Random
 use std::collections::{HashMap, HashSet}; //Data structures
 use std::fs::File; //File operations
 use std::io::BufReader; //File operations
@@ -358,11 +357,7 @@ impl IoTDevice {
         let pedersen_bytes: [u8; 32] = c2.compress().to_bytes();
         let epsilon = point_to_fr(&pedersen_bytes);
         //Sample blinding factor b
-        let mut b_bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut b_bytes);
-        b_bytes[31] &= 0x3F; //clamp high bits so value is canonically < r
-        let blinding = Halo2Fr::from_repr(b_bytes).unwrap_or(Halo2Fr::ZERO);
-        b_bytes.zeroize();
+        let blinding = Halo2Fr::random(OsRng);
         //Sample Schnorr nonce v; v_f = v embedded in Fr (no reduction since q < r)
         let mut v = Scalar::random(&mut OsRng);
         let v_f = scalar_to_fr(&v);

@@ -423,7 +423,7 @@ impl IoTDevice {
         r.zeroize();
         let resp_f_bytes: [u8; 16] = resp_f.as_int().to_le_bytes();
         let c_f_bytes: [u8; 16] = c_f.as_int().to_le_bytes();
-        let omega_byte: u8 = if omega == BaseElement::ONE { 1 } else { 0 };
+        let omega_byte: u8 = 0;
         let mut sig_data = Vec::new();
         sig_data.extend_from_slice(&ts.to_le_bytes());
         sig_data.extend_from_slice(&self.id.to_le_bytes());
