@@ -7,15 +7,15 @@ description = "Zero Knowledge Decentralized Encrypted Aggregation Protocol"
 
 [[bin]]
 name = "fixture_server"
-path = "src/bin/azureTestingScripts/fixture_server.rs"
+path = "src/bin/testingScripts/fixture_server.rs"
 
 [[bin]]
 name = "test_harness"
-path = "src/bin/azureTestingScripts/test_harness.rs"
+path = "src/bin/testingScripts/test_harness.rs"
 
 [[bin]]
 name = "snark_setup"
-path = "src/bin/azureTestingScripts/snark_setup.rs"
+path = "src/bin/testingScripts/snark_setup.rs"
 
 [[bin]]
 name = "snark_param_gen"

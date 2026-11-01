@@ -3,7 +3,7 @@ use serde_with::{serde_as, Bytes};
 use curve25519_dalek_ng::{ristretto::*, scalar::Scalar, traits::Identity, constants::RISTRETTO_BASEPOINT_POINT};
 use merlin::Transcript;
 use frost_ristretto255 as frost;
-use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer, Verifier};
+use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer};
 use zeroize::Zeroize;
 use subtle::{Choice, ConditionallySelectable};
 use rand::rngs::OsRng;
@@ -14,7 +14,7 @@ pub const PROOF_EXPIRY: u64 = 86400;
 pub const MAX_DEVICES: usize = 10000;
 pub const RATE_WINDOW: u64 = 10;
 pub const MAX_MSGS_PER_WINDOW: u32 = 10;
-pub const MAX_TOTAL_RATE: u32 = 50;
+pub const MAX_TOTAL_RATE: u32 = 3 * MAX_DEVICES as u32;
 pub const MAX_CLOCK_SKEW: u64 = 60;
 pub const MAX_NONCES_PER_DEVICE: usize = 100;
 pub const MAX_STORED_PROOFS: usize = 10000;
@@ -249,7 +249,7 @@ pub fn verify_sig(k: &VerifyingKey, parts: &[&[u8]], sig: &[u8; 64]) -> Result<(
     let mut d = Vec::new();
     for p in parts { d.extend_from_slice(p); }
     let s = Signature::try_from(&sig[..]).map_err(|_| AggError::InvalidProof("bad sig".into()))?;
-    k.verify(&d, &s).map_err(|_| AggError::InvalidProof("sig verify failed".into()))
+    k.verify_strict(&d, &s).map_err(|_| AggError::InvalidProof("sig verify failed".into()))
 }
 //Rate limiting check
 pub fn check_rate(id: u32, rates: &mut HashMap<u32, (u64, u32)>) -> Result<(), AggError> {
@@ -275,12 +275,13 @@ pub fn generate_partial_decryption(device_id: u32,key_package: &frost::keys::Key
     if verified_ciphertexts.is_empty() { return Err(AggError::ThresholdNotMet); }
     let agg_c1: RistrettoPoint = verified_ciphertexts.iter().map(|vc| vc.c1).sum();
     let ts = timestamp();
-    let secret_share = frost_to_scalar(key_package.signing_share())?;
+    let mut secret_share = frost_to_scalar(key_package.signing_share())?;
     let partial = agg_c1 * secret_share;
     let my_id = frost::Identifier::try_from(device_id as u16).map_err(|e| AggError::CryptoError(e.to_string()))?;
     let verification_share = public_key_package.verifying_shares().get(&my_id).ok_or_else(|| AggError::CryptoError("no verification share".into()))?;
     let verification_point = frost_share_to_point(verification_share)?;
     let cp_proof = SchnorrProof::prove(&secret_share, &agg_c1, &partial, &verification_point, ts, device_id);
+    secret_share.zeroize();
     let sig = sign(sig_key,&[&ts.to_le_bytes(),&device_id.to_le_bytes(),partial.compress().as_bytes()]);
     Ok(PartialDecryption {
         device_id,
@@ -298,7 +299,6 @@ pub fn receive_partial(partial: PartialDecryption,peer_keys: &HashMap<u32, Verif
         verified_partials.retain(|vp| vp.timestamp > cutoff);
         if verified_partials.len() >= MAX_STORED_PARTIALS {return Err(AggError::RateLimited);}
     }
-    check_rate(partial.device_id, rates)?;
     let now = timestamp();
     let adjusted_now = now + MAX_CLOCK_SKEW;
     if partial.timestamp > adjusted_now {return Err(AggError::InvalidProof("Timestamp too far in future".into()));}
@@ -307,6 +307,7 @@ pub fn receive_partial(partial: PartialDecryption,peer_keys: &HashMap<u32, Verif
     let agg_c1: RistrettoPoint = verified_ciphertexts.iter().map(|vc| vc.c1).sum();
     let partial_point = partial.partial.0.decompress().ok_or_else(|| AggError::InvalidProof("Invalid partial point".into()))?;
     verify_sig(peer_key,&[&partial.timestamp.to_le_bytes(),&partial.device_id.to_le_bytes(),partial.partial.0.as_bytes()],&partial.signature)?;
+    check_rate(partial.device_id, rates)?;
     let peer_id = frost::Identifier::try_from(partial.device_id as u16).map_err(|e| AggError::CryptoError(e.to_string()))?;
     let verification_share = public_key_package.verifying_shares().get(&peer_id).ok_or_else(|| AggError::CryptoError("Unknown participant".into()))?;
     let verification_point = frost_share_to_point(verification_share)?;

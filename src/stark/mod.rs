@@ -5,7 +5,7 @@ use winterfell::{Air, AirContext, Assertion, EvaluationFrame, ProofOptions, Prov
 use winter_utils::Serializable; //Winterfell
 use merlin::Transcript; //Transcript
 use frost_ristretto255 as frost; //FROST
-use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer, Verifier}; //Digital signatures
+use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer}; //Digital signatures
 use zeroize::Zeroize; //Safe data deletion
 use rand::rngs::OsRng; //Random
 use rand::RngCore; //Random
@@ -287,14 +287,14 @@ impl ElGamalProof {
         (proof, c)
     }
 
-    pub fn verify(&self, c1: &RistrettoPoint, c2: &RistrettoPoint, h: &RistrettoPoint, dev_id: u32, ts: u64, v_commit_bytes: &[u8; 16] ) -> bool {
+    pub fn verify(&self, c1: &RistrettoPoint, c2: &RistrettoPoint, h: &RistrettoPoint, dev_id: u32, ts: u64, v_commit_bytes: &[u8; 16] ) -> Option<Scalar> {
         let g = RISTRETTO_BASEPOINT_POINT;
         let (Some(cr), Some(cs), Some(cp), Some(pc)) = (
             self.commit_r.0.decompress(),
             self.commit_s.0.decompress(),
             self.commit_p.0.decompress(),
             self.pedersen_commit.0.decompress(),
-        ) else { return false };
+        ) else { return None };
         let mut t = Transcript::new(b"elgamal-pedersen-v2");
         t.append_message(b"protocol_version", &[PROTOCOL_VERSION]);
         t.append_u64(b"device", dev_id as u64);
@@ -312,7 +312,7 @@ impl ElGamalProof {
         let chk1 = g * self.resp_r.0 == cr + c1 * c;
         let chk2 = g * self.resp_state.0 + h * self.resp_r.0 == cs + c2 * c;
         let chk3 = g * self.resp_state.0 + h * self.resp_r.0 == cp + pc * c;
-        chk1 && chk2 && chk3
+        (chk1 && chk2 && chk3).then_some(c)
     }
 }
 
@@ -392,7 +392,8 @@ impl IoTDevice {
         let mut b_bytes = [0u8; 16];
         OsRng.fill_bytes(&mut b_bytes);
         let blinding = BaseElement::new(u128::from_le_bytes(b_bytes));
-        let v = Scalar::random(&mut OsRng);
+        b_bytes.zeroize();
+        let mut v = Scalar::random(&mut OsRng);
         let v_f = scalar_to_field_element(&v);
         let s_elem = BaseElement::new(state as u128);
         let v_commit_elem = mimc_hash(v_f, s_elem, epsilon, blinding);
@@ -412,6 +413,7 @@ impl IoTDevice {
         } else {
             BaseElement::ZERO
         };
+        v.zeroize();
         let resp_f = scalar_to_field_element(&eg_proof.resp_state.0);
         let c_f    = scalar_to_field_element(&challenge);
         let trace = self.stark_prover.build_trace(state, v_f, epsilon, blinding, resp_f, c_f, omega);
@@ -460,7 +462,6 @@ impl IoTDevice {
                 return Err(AggError::RateLimited);
             }
         }
-        check_rate(p.device_id, &mut self.rates)?;
         let now = timestamp();
         if p.timestamp > now + MAX_CLOCK_SKEW {
             return Err(AggError::InvalidProof("Timestamp too far in future".into()));
@@ -472,7 +473,7 @@ impl IoTDevice {
         if device_nonces.len() >= MAX_NONCES_PER_DEVICE {
             return Err(AggError::RateLimited);
         }
-        if !device_nonces.insert(p.v_commit) {
+        if device_nonces.contains(&p.v_commit) {
             return Err(AggError::InvalidProof("Nonce already used".into()));
         }
         if self.verified_ciphertexts.contains_key(&p.device_id) {
@@ -498,16 +499,17 @@ impl IoTDevice {
         sig_data.extend_from_slice(&p.c_f);
         sig_data.push(p.omega);
         let sig = Signature::try_from(&p.signature[..]).map_err(|_| AggError::InvalidProof("bad sig".into()))?;
-        pk.verify(&sig_data, &sig).map_err(|_| AggError::InvalidProof("sig verify failed".into()))?;
+        pk.verify_strict(&sig_data, &sig).map_err(|_| AggError::InvalidProof("sig verify failed".into()))?;
+        check_rate(p.device_id, &mut self.rates)?;
         let c1 = p.elgamal_c1.0.decompress().ok_or(AggError::InvalidProof("bad c1".into()))?;
         let c2 = p.elgamal_c2.0.decompress().ok_or(AggError::InvalidProof("bad c2".into()))?;
         let h = frost_to_point(&self.group_pub.verifying_key())?;
-        if !p.elgamal_proof.verify(&c1, &c2, &h, p.device_id, p.timestamp, &p.v_commit) {
+        let Some(challenge) = p.elgamal_proof.verify(&c1, &c2, &h, p.device_id, p.timestamp, &p.v_commit) else {
             return Err(AggError::InvalidProof("Schnorr failed".into()));
-        }
+        };
         let v_commit_elem = BaseElement::new(u128::from_le_bytes(p.v_commit));
-        let resp_f_elem= BaseElement::new(u128::from_le_bytes(p.resp_f));
-        let c_f_elem= BaseElement::new(u128::from_le_bytes(p.c_f));
+        let resp_f_elem= scalar_to_field_element(&p.elgamal_proof.resp_state.0);
+        let c_f_elem= scalar_to_field_element(&challenge);
         let pedersen_bytes: [u8; 32] = c2.compress().to_bytes();
         let epsilon_elem = point_to_field_element(&pedersen_bytes);
         let stark_proof = Proof::from_bytes(&p.stark_proof[..]).map_err(|_| AggError::InvalidProof("bad STARK format".into()))?;
@@ -519,6 +521,7 @@ impl IoTDevice {
         };
         let min_opts = AcceptableOptions::MinConjecturedSecurity(95);
         verify::<BinaryAir, Blake3_256<BaseElement>, DefaultRandomCoin<Blake3_256<BaseElement>>, MerkleTree<Blake3_256<BaseElement>>>(stark_proof, pub_inputs, &min_opts).map_err(|_| AggError::InvalidProof("STARK verify failed".into()))?;
+        self.seen_nonces.entry(p.device_id).or_default().insert(p.v_commit);
         self.verified_ciphertexts.insert(p.device_id, VerifiedCiphertext {timestamp: p.timestamp, c1, c2});
         Ok(())
     }
@@ -563,3 +566,5 @@ impl IoTDevice {
         crate::common::compute_aggregate(self.threshold,&verified_vec,&verified_partials_vec)
     }
 }
+
+impl Drop for IoTDevice { fn drop(&mut self) { self.frost_key.zeroize(); } }

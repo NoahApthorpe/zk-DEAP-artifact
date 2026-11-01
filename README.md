@@ -16,7 +16,7 @@ installed but Docker, or with a native build. Both approaches are described belo
     src/stark/                     zk-STARK variant
     src/bin/examples/              the three protocol demonstrations (E1)
     src/bin/security_tests/        the four attack demonstrations (E2)
-    src/bin/azureTestingScripts/
+    src/bin/testingScripts/
                                    benchmark harness and its fixture server (E3), zk-SNARK parameter setup
     src/bin/utils/                 KZG parameter inspection
 
