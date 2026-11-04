@@ -4,10 +4,9 @@ use curve25519_dalek_ng::{ristretto::*, scalar::Scalar, traits::Identity, consta
 use halo2_proofs::{arithmetic::Field, halo2curves::{bn256::{Bn256, Fr as Halo2Fr, G1Affine}, ff::PrimeField}, circuit::{Layouter, SimpleFloorPlanner, Value}, plonk::{Advice, Circuit, Column, ConstraintSystem, Error as Halo2Error, Expression, Fixed, Selector, create_proof, keygen_pk, keygen_vk, verify_proof, ProvingKey, VerifyingKey, Instance}, poly::{Rotation, commitment::Params, kzg::{commitment::{KZGCommitmentScheme, ParamsKZG}, multiopen::{ProverSHPLONK, VerifierSHPLONK}, strategy::SingleStrategy}}, transcript::{Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer, TranscriptWriterBuffer}}; //Halo2
 use merlin::Transcript; //Transcript
 use frost_ristretto255 as frost; //Frost
-use ed25519_dalek::{SigningKey, VerifyingKey as ed_vf, Signature, Signer, Verifier}; //ECDS
+use ed25519_dalek::{SigningKey, VerifyingKey as ed_vf, Signature, Signer}; //ECDS
 use zeroize::Zeroize; //Safe deletion
 use rand::rngs::OsRng; //Random
-use rand::RngCore; //Random
 use std::collections::{HashMap, HashSet}; //Data structures
 use std::fs::File; //File operations
 use std::io::BufReader; //File operations
@@ -261,9 +260,9 @@ impl ElGamalProof {
         w.zeroize();
         (proof, c)
     }
-    pub fn verify(&self, c1: &RistrettoPoint, c2: &RistrettoPoint, h: &RistrettoPoint, dev_id: u32, ts: u64, v_commit_bytes: &[u8; 16]) -> bool {
+    pub fn verify(&self, c1: &RistrettoPoint, c2: &RistrettoPoint, h: &RistrettoPoint, dev_id: u32, ts: u64, v_commit_bytes: &[u8; 16]) -> Option<Scalar> {
         let g = RISTRETTO_BASEPOINT_POINT;
-        let (Some(cr), Some(cs), Some(cp), Some(pc)) = (self.commit_r.0.decompress(),self.commit_s.0.decompress(),self.commit_p.0.decompress(),self.pedersen_commit.0.decompress()) else { return false };
+        let (Some(cr), Some(cs), Some(cp), Some(pc)) = (self.commit_r.0.decompress(),self.commit_s.0.decompress(),self.commit_p.0.decompress(),self.pedersen_commit.0.decompress()) else { return None };
         let mut t = Transcript::new(b"elgamal-pedersen-v2");
         t.append_message(b"protocol_version", &[PROTOCOL_VERSION]);
         t.append_u64(b"device", dev_id as u64);
@@ -281,7 +280,7 @@ impl ElGamalProof {
         let chk1 = g * self.resp_r.0 == cr + c1 * c;
         let chk2 = g * self.resp_state.0 + h * self.resp_r.0 == cs + c2 * c;
         let chk3 = g * self.resp_state.0 + h * self.resp_r.0 == cp + pc * c;
-        chk1 && chk2 && chk3
+        (chk1 && chk2 && chk3).then_some(c)
     }
 }
 
@@ -358,12 +357,9 @@ impl IoTDevice {
         let pedersen_bytes: [u8; 32] = c2.compress().to_bytes();
         let epsilon = point_to_fr(&pedersen_bytes);
         //Sample blinding factor b
-        let mut b_bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut b_bytes);
-        b_bytes[31] &= 0x3F; //clamp high bits so value is canonically < r
-        let blinding = Halo2Fr::from_repr(b_bytes).unwrap_or(Halo2Fr::ZERO);
+        let blinding = Halo2Fr::random(OsRng);
         //Sample Schnorr nonce v; v_f = v embedded in Fr (no reduction since q < r)
-        let v = Scalar::random(&mut OsRng);
+        let mut v = Scalar::random(&mut OsRng);
         let v_f = scalar_to_fr(&v);
         //Compute V_commit BEFORE Fiat-Shamir
         let s_fr = Halo2Fr::from(state as u64);
@@ -391,6 +387,7 @@ impl IoTDevice {
         } else {
             0u8
         };
+        v.zeroize();
         let omega_fr = Halo2Fr::from(omega_byte as u64);
         //Build circuit and prove
         let circuit = BinaryCircuit {
@@ -424,7 +421,7 @@ impl IoTDevice {
         sig_data.extend_from_slice(&v_commit_bytes32);
         sig_data.extend_from_slice(&resp_f_bytes);
         sig_data.extend_from_slice(&c_f_bytes);
-        sig_data.push(omega_byte);
+        sig_data.push(0);
         let signature = self.sig_key.sign(&sig_data).to_bytes();
         Ok(DeviceProof {
             device_id: self.id, timestamp: ts,
@@ -434,7 +431,7 @@ impl IoTDevice {
             v_commit: v_commit_bytes32,
             resp_f: resp_f_bytes,
             c_f: c_f_bytes,
-            omega: omega_byte,
+            omega: 0,
             halo2_proof: transcript.finalize(),
             signature,
         })
@@ -447,7 +444,6 @@ impl IoTDevice {
                 return Err(AggError::RateLimited);
             }
         }
-        check_rate(p.device_id, &mut self.rates)?;
         let now = timestamp();
         let adjusted_now = now + MAX_CLOCK_SKEW;
         if p.timestamp > adjusted_now {
@@ -460,7 +456,7 @@ impl IoTDevice {
         if device_nonces.len() >= MAX_NONCES_PER_DEVICE {
             return Err(AggError::RateLimited);
         }
-        if !device_nonces.insert(p.v_commit) {
+        if device_nonces.contains(&p.v_commit) {
             return Err(AggError::InvalidProof("Nonce already used".into()));
         }
         if p.halo2_proof.len() > MAX_PROOF_SIZE {
@@ -487,20 +483,21 @@ impl IoTDevice {
         sig_data.extend_from_slice(&p.c_f);
         sig_data.push(p.omega);
         let sig = Signature::try_from(&p.signature[..]).map_err(|_| AggError::InvalidProof("bad sig".into()))?;
-        pk.verify(&sig_data, &sig).map_err(|_| AggError::InvalidProof("sig verify failed".into()))?;
+        pk.verify_strict(&sig_data, &sig).map_err(|_| AggError::InvalidProof("sig verify failed".into()))?;
+        check_rate(p.device_id, &mut self.rates)?;
         //ElGamal Schnorr (uses low 16 bytes of v_commit as transcript binding)
         let mut v_commit_16 = [0u8; 16];
         v_commit_16.copy_from_slice(&p.v_commit[..16]);
         let c1 = p.elgamal_c1.0.decompress().ok_or(AggError::InvalidProof("bad c1".into()))?;
         let c2 = p.elgamal_c2.0.decompress().ok_or(AggError::InvalidProof("bad c2".into()))?;
         let h = frost_to_point(&self.group_pub.verifying_key())?;
-        if !p.elgamal_proof.verify(&c1, &c2, &h, p.device_id, p.timestamp, &v_commit_16) {
+        let Some(challenge) = p.elgamal_proof.verify(&c1, &c2, &h, p.device_id, p.timestamp, &v_commit_16) else {
             return Err(AggError::InvalidProof("Schnorr failed".into()));
-        }
+        };
         //Halo2 verify
         let v_commit_fr = Halo2Fr::from_repr(p.v_commit).unwrap_or(Halo2Fr::ZERO);
-        let resp_f_fr = Halo2Fr::from_repr(p.resp_f).unwrap_or(Halo2Fr::ZERO);
-        let c_f_fr = Halo2Fr::from_repr(p.c_f).unwrap_or(Halo2Fr::ZERO);
+        let resp_f_fr = scalar_to_fr(&p.elgamal_proof.resp_state.0);
+        let c_f_fr = scalar_to_fr(&challenge);
         let pedersen_bytes: [u8; 32] = c2.compress().to_bytes();
         let epsilon_fr = point_to_fr(&pedersen_bytes);
         let instance_v_commit = vec![v_commit_fr];
@@ -510,6 +507,7 @@ impl IoTDevice {
         let strategy = SingleStrategy::new(&self.halo2_setup.params);
         let mut transcript = Blake2bRead::<_, G1Affine, Challenge255<_>>::init(&p.halo2_proof[..]);
         verify_proof::<KZGCommitmentScheme<Bn256>, VerifierSHPLONK<'_, Bn256>, _, _, _>(&self.halo2_setup.params,&self.halo2_setup.vk,strategy,&[&[&instance_v_commit[..], &instance_eps[..], &instance_resp_f[..], &instance_c_f[..]]],&mut transcript,).map_err(|_| AggError::InvalidProof("Halo2 verify failed".into()))?;
+        self.seen_nonces.entry(p.device_id).or_default().insert(p.v_commit);
         self.verified_ciphertexts.insert(p.device_id, VerifiedCiphertext {timestamp: p.timestamp, c1, c2});
         Ok(())
     }
@@ -552,4 +550,15 @@ impl IoTDevice {
         let verified_partials_vec: Vec<VerifiedPartial> = self.partials.values().cloned().collect();
         crate::common::compute_aggregate(self.threshold,&verified_vec,&verified_partials_vec)
     }
+}
+
+impl Drop for IoTDevice { fn drop(&mut self) { self.frost_key.zeroize(); } }
+#[doc(hidden)] //test hook for snark_penTest: proves the circuit for s=1 with attacker-chosen v_f, b, c_f, as an insider's own binary can
+pub fn prove_with_witnesses(setup: &Halo2Setup, c2: &RistrettoPoint) -> ([u8; 32], [u8; 32], [u8; 32], Vec<u8>) {
+    let (s, v_f, b, c_f, eps) = (Halo2Fr::ONE, Halo2Fr::from(11), Halo2Fr::from(22), Halo2Fr::from(33), point_to_fr(&c2.compress().to_bytes()));
+    let (resp_f, v_commit) = (v_f + c_f * s, mimc_hash(v_f, s, eps, b));
+    let circuit = BinaryCircuit { state: Value::known(s), v_f: Value::known(v_f), epsilon: Value::known(eps), blinding: Value::known(b), omega: Value::known(Halo2Fr::ZERO) };
+    let mut tr = Blake2bWrite::<_, G1Affine, Challenge255<_>>::init(vec![]);
+    create_proof::<KZGCommitmentScheme<Bn256>, ProverSHPLONK<'_, Bn256>, _, _, _, _>(&setup.params, &setup.pk, &[circuit], &[&[&[v_commit][..], &[eps][..], &[resp_f][..], &[c_f][..]]], OsRng, &mut tr).unwrap();
+    (v_commit.to_repr(), resp_f.to_repr(), c_f.to_repr(), tr.finalize())
 }

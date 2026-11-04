@@ -7,15 +7,15 @@ description = "Zero Knowledge Decentralized Encrypted Aggregation Protocol"
 
 [[bin]]
 name = "fixture_server"
-path = "src/bin/azureTestingScripts/fixture_server.rs"
+path = "src/bin/testingScripts/fixture_server.rs"
 
 [[bin]]
 name = "test_harness"
-path = "src/bin/azureTestingScripts/test_harness.rs"
+path = "src/bin/testingScripts/test_harness.rs"
 
 [[bin]]
 name = "snark_setup"
-path = "src/bin/azureTestingScripts/snark_setup.rs"
+path = "src/bin/testingScripts/snark_setup.rs"
 
 [[bin]]
 name = "snark_param_gen"
@@ -63,7 +63,7 @@ serde = { version = "1.0", features = ["derive"] } #Serialization/deserializatio
 serde_with = "3.14" #Serialization/deserialization
 halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v2023_04_20" } #Halo2
 blake2b_simd = "1.0" #Transcript
-#halo2_gadgets = "0.3" # AE-FIX (9)
+#halo2_gadgets = "0.3"
 winterfell = { version = "0.10", features = ["concurrent"] } #Winterfell
 winter-utils = "0.10" #Winterfell
 winter-prover = "0.10" #Winterfell
@@ -88,7 +88,7 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = true
-# AE-FIX (14): panic = "abort" removed so the attack suites' catch_unwind reports failures
+#panic = "abort" removed so the attack suites' catch_unwind reports failures
 overflow-checks = false
 debug = false
 incremental = false

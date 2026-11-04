@@ -4,7 +4,7 @@ use curve25519_dalek_ng::{ristretto::*, scalar::Scalar, traits::Identity, consta
 use bulletproofs::{BulletproofGens, PedersenGens, RangeProof};
 use merlin::Transcript;
 use frost_ristretto255 as frost;
-use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer, Verifier};
+use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer};
 use zeroize::Zeroize;
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -187,7 +187,7 @@ impl IoTDevice {
         binding_transcript.challenge_bytes(b"binding_factor", &mut binding_bytes);
         let binding_factor = Scalar::from_bytes_mod_order_wide(&binding_bytes);
         //Bind bulletproof to ElGamal ciphertext
-        let r_bound = r + binding_factor;
+        let mut r_bound = r + binding_factor;
         //Generate bulletproof using bound r as blinding factor
         let mut t = Transcript::new(b"binary-range-proof");
         t.append_message(b"protocol_version", &[PROTOCOL_VERSION]);
@@ -198,8 +198,8 @@ impl IoTDevice {
         t.append_message(b"c2", c2.compress().as_bytes());
         t.append_message(b"commitment", eg_proof.state_commit.0.as_bytes());
         //Generate bulletproof
-        let (bp, _) = RangeProof::prove_single(&self.bp_gens, &self.ped_gens, &mut t, state as u64, &r_bound, 8).map_err(|e| { r.zeroize(); AggError::CryptoError(format!("BP failed: {:?}", e)) })?;
-        r.zeroize(); //clean up secret
+        let (bp, _) = RangeProof::prove_single(&self.bp_gens, &self.ped_gens, &mut t, state as u64, &r_bound, 8).map_err(|e| { r.zeroize(); r_bound.zeroize(); AggError::CryptoError(format!("BP failed: {:?}", e)) })?;
+        r.zeroize(); r_bound.zeroize(); //clean up secrets
         //Return proof
         Ok(DeviceProof {
             device_id: self.id, timestamp: ts, nonce,
@@ -216,14 +216,13 @@ impl IoTDevice {
             self.cleanup();
             if self.verified_ciphertexts.len() >= MAX_STORED_PROOFS { return Err(AggError::RateLimited); }
         }
-        check_rate(p.device_id, &mut self.rates)?;
         let now = timestamp();
         let adjusted_now = now + MAX_CLOCK_SKEW;
         if p.timestamp > adjusted_now { return Err(AggError::InvalidProof("Timestamp too far in future".into())); }
         if p.timestamp + PROOF_EXPIRY < now.saturating_sub(MAX_CLOCK_SKEW) { return Err(AggError::ExpiredProof); }
         let device_nonces = self.seen_nonces.entry(p.device_id).or_insert_with(HashSet::new);
         if device_nonces.len() >= MAX_NONCES_PER_DEVICE { return Err(AggError::RateLimited); }
-        if !device_nonces.insert(p.nonce) { return Err(AggError::InvalidProof("Nonce already used".into())); }
+        if device_nonces.contains(&p.nonce) { return Err(AggError::InvalidProof("Nonce already used".into())); }
         if self.verified_ciphertexts.contains_key(&p.device_id) { return Err(AggError::InvalidProof("Duplicate".into())); }
         if p.bulletproof.len() > MAX_PROOF_SIZE { return Err(AggError::InvalidProof("Too big".into())); }
         //Verify signature
@@ -231,7 +230,8 @@ impl IoTDevice {
         {
             let mut sig_data = Vec::new();sig_data.extend_from_slice(&p.timestamp.to_le_bytes());sig_data.extend_from_slice(&p.device_id.to_le_bytes());sig_data.extend_from_slice(&p.nonce);sig_data.extend_from_slice(p.elgamal_c1.0.as_bytes());sig_data.extend_from_slice(p.elgamal_c2.0.as_bytes());sig_data.extend_from_slice(p.elgamal_proof.state_commit.0.as_bytes());sig_data.extend_from_slice(p.elgamal_proof.commit_r.0.as_bytes());sig_data.extend_from_slice(p.elgamal_proof.commit_s.0.as_bytes());sig_data.extend_from_slice(p.elgamal_proof.commit_c.0.as_bytes());sig_data.extend_from_slice(&p.elgamal_proof.resp_r.0.to_bytes());sig_data.extend_from_slice(&p.elgamal_proof.resp_state.0.to_bytes());sig_data.extend_from_slice(&p.bulletproof);
             let sig = Signature::try_from(&p.signature[..]).map_err(|_| AggError::InvalidProof("bad sig".into()))?;
-            pk.verify(&sig_data, &sig).map_err(|_| AggError::InvalidProof("sig verify failed".into()))?;
+            pk.verify_strict(&sig_data, &sig).map_err(|_| AggError::InvalidProof("sig verify failed".into()))?;
+            check_rate(p.device_id, &mut self.rates)?;
         }
         //Verify ElGamal correctness proof
         let c1 = p.elgamal_c1.0.decompress().ok_or(AggError::InvalidProof("bad c1".into()))?;
@@ -265,6 +265,7 @@ impl IoTDevice {
         //Verify bulletproof
         RangeProof::from_bytes(&p.bulletproof).map_err(|_| AggError::InvalidProof("bad BP".into()))?.verify_single(&self.bp_gens, &self.ped_gens, &mut t, &expected_commit.compress(), 8).map_err(|_| AggError::InvalidProof("BP verify failed".into()))?;
         //Insert proof and maybe recompute aggregate
+        self.seen_nonces.entry(p.device_id).or_default().insert(p.nonce);
         self.verified_ciphertexts.insert(p.device_id, VerifiedCiphertext {timestamp: p.timestamp,c1,c2,});
         Ok(())
     }
@@ -312,3 +313,5 @@ impl IoTDevice {
         crate::common::compute_aggregate(self.threshold,&verified_vec,&verified_partials_vec)
     }
 }
+
+impl Drop for IoTDevice { fn drop(&mut self) { self.frost_key.zeroize(); } }
